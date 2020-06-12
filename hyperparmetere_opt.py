@@ -62,8 +62,8 @@ def create_received_signal(data, ro=1):
 	channel_matrix = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
 	for t in range(dense_sampling_L):
 		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
-		# power_of_signal = signal.var()
-		# noise_power = power_of_signal / ro
+		power_of_signal = signal.var()
+		noise_power = power_of_signal / ro
 		noise_power = 1 / ro
 		channel_matrix[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
 			noise_power) * signal + np.random.randn(

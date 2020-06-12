@@ -56,16 +56,15 @@ def create_received_signal(data, ro=1):
 	:param ro: SNR
 	:return: x(t) = G(t)*s+w(t) (n*L, N)
 	'''
-	channel_matrix = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
+	received_signal = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
 	for t in range(dense_sampling_L):
-		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
-		power_of_signal = signal.var()
-		noise_power = power_of_signal / ro
-		channel_matrix[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
-			noise_power) * signal + np.random.randn(
+		channel_matrix = channel_matrix_cos[t] * channel_matrix_exp
+		signal = np.dot(channel_matrix, data)
+		received_signal[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(ro) * signal + np.random.randn(
 			num_rx_antenas,
 			data.shape[1])
-	return channel_matrix
+	return received_signal
+
 
 def create_received_signal_debug(data, ro=1):
 	'''
@@ -77,17 +76,14 @@ def create_received_signal_debug(data, ro=1):
 	:param ro: SNR
 	:return: x(t) = G(t)*s+w(t) (n*L, N)
 	'''
-	channel_matrix = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
-	print('new')
+	received_signal = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
 	for t in range(dense_sampling_L):
-		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
-		power_of_signal = signal.var()
-		noise_power = power_of_signal / ro
-		channel_matrix[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
-			noise_power) * signal + np.random.randn(
+		channel_matrix = channel_matrix_cos[t] * channel_matrix_exp
+		signal = np.dot(channel_matrix, data)
+		received_signal[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = signal + np.sqrt(ro) * np.random.randn(
 			num_rx_antenas,
 			data.shape[1])
-	return channel_matrix
+	return received_signal
 
 
 def create_received_signal_uncertanity_error(data, ro=1):
@@ -270,12 +266,8 @@ class ADCNet(nn.Module):
 		return x
 
 
-def train(detector,parameters):
+def train(detector, parameters):
 	pass
-
-
-
-
 
 
 #######################
@@ -285,7 +277,7 @@ def train(detector,parameters):
 
 # detector_list = [create_received_signal]
 # plot_labels = ['Deep task based, perfect CSI']
-detector_list = [create_received_signal, create_received_signal_uncertanity_error]
+detector_list = [create_received_signal_debug, create_received_signal_uncertanity_error]
 plot_labels = ['Deep task based, perfect CSI', 'Deep task based, CSI uncertainity']
 for d, detector in tqdm(enumerate(detector_list)):
 	BER = []
@@ -302,8 +294,8 @@ for d, detector in tqdm(enumerate(detector_list)):
 		labels_validation = np.sum(0.5 * (validation_data + 1).T * 2 ** np.flip(np.arange(4)), axis=1).astype(np.long)
 		labels_test = np.sum(0.5 * (test_data + 1).T * 2 ** np.flip(np.arange(4)), axis=1).astype(np.long)
 		train_samples = detector(train_data, ro).T
-		validation_samples = create_received_signal(validation_data, ro).T
-		test_samples = create_received_signal(test_data, ro).T
+		validation_samples = create_received_signal_debug(validation_data, ro).T
+		test_samples = create_received_signal_debug(test_data, ro).T
 		training_set = []
 		validation_set = []
 		test_set = []
