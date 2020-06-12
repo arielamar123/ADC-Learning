@@ -78,6 +78,7 @@ def create_received_signal_debug(data, ro=1):
 	:return: x(t) = G(t)*s+w(t) (n*L, N)
 	'''
 	channel_matrix = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
+	print('new')
 	for t in range(dense_sampling_L):
 		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
 		power_of_signal = signal.var()
