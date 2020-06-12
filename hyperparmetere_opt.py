@@ -64,7 +64,6 @@ def create_received_signal(data, ro=1):
 		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
 		power_of_signal = signal.var()
 		noise_power = power_of_signal / ro
-		noise_power = 1 / ro
 		channel_matrix[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
 			noise_power) * signal + np.random.randn(
 			num_rx_antenas,
