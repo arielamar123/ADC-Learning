@@ -31,7 +31,7 @@ error_variance = 0.1  # error variance for csi uncertainty
 frame_size = 200
 f_0 = 1e3
 w = 2 * np.pi * f_0
-snr_vals = 10 ** (0.1 * np.arange(13))
+snr_vals = 10 ** (-0.1 * np.arange(13))
 epochs = 25
 batch_size = 200
 time_vec = np.arange(1, dense_sampling_L + 1) / dense_sampling_L
@@ -62,10 +62,10 @@ def create_received_signal(data, ro=1):
 	channel_matrix = np.zeros((num_rx_antenas * dense_sampling_L, data.shape[1]))
 	for t in range(dense_sampling_L):
 		signal = np.dot(channel_matrix_cos[t] * channel_matrix_exp, data)
-		power_of_signal = signal.var()
-		noise_power = power_of_signal / ro
+		# power_of_signal = signal.var()
+		# noise_power = power_of_signal / ro
 		channel_matrix[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
-			noise_power) * signal + np.random.randn(
+			ro) * signal + np.random.randn(
 			num_rx_antenas,
 			data.shape[1])
 	return channel_matrix
@@ -97,8 +97,7 @@ def create_received_signal_uncertanity_error(data, ro=1):
 		for f in range(data.shape[1] // frame_size):
 			signal[:, f * frame_size:(f + 1) * frame_size] = np.dot(channel_matrix_cos[t] * noisy_channel_matrix_exp,
 			                                                        data[:, f * frame_size:(f + 1) * frame_size])
-		noisy_recieved_signal[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(
-			1 / ro) * signal
+		noisy_recieved_signal[num_rx_antenas * t:num_rx_antenas * (t + 1), :] = np.sqrt(ro) * signal
 	return noisy_recieved_signal + noisy_channel_matrix
 
 
@@ -126,6 +125,7 @@ class SamplingLayer(nn.Module):
 		self.num_samples_L_tilde = num_samples_L_tilde
 
 	def forward(self, x):
+		print('bef samp',x.shape)
 		out = torch.zeros((len(x), self.num_samples_L_tilde * self.num_of_adc_p)).double()
 		t = torch.from_numpy(np.arange(1, dense_sampling_L + 1, dtype=np.double))
 		for v, j in enumerate(range(0, dense_sampling_L * self.num_of_adc_p, dense_sampling_L)):
@@ -133,6 +133,7 @@ class SamplingLayer(nn.Module):
 				out[:, v * self.num_samples_L_tilde + k] = torch.sum(
 					x[:, j:j + dense_sampling_L] * torch.exp(
 						-(t - self.weight[k]) ** 2 / gaussian_sampling_std ** 2), dim=1)
+		print('aft samp', out.shape)
 		return out
 
 
@@ -181,6 +182,7 @@ class QuantizationLayer(nn.Module):
 		self.num_code_words = num_code_words
 
 	def forward(self, x):
+		print(x.shape)
 		z = torch.zeros(self.num_code_words - 1, x.shape[0], x.shape[1]).double()
 		for i in range(self.num_code_words - 1):
 			z[i, :, :] = self.a[i] * torch.tanh(self.c[i] * (x - self.b[i]))
@@ -273,7 +275,7 @@ def train(detector, parameters, train_opt_data):
 
 		labels_validation = np.sum(0.5 * (validation_data + 1).T * 2 ** np.flip(np.arange(4)), axis=1).astype(np.long)
 
-		validation_samples = create_received_signal(validation_data, ro).T
+		validation_samples = detector(validation_data, ro).T
 		validation_set = []
 
 		for i in range(len(validation_samples)):
@@ -446,121 +448,137 @@ def train_evaluate(parameterization):
 	return evaluate(parameterization, nets)
 
 
-train_opt_data = []
-for r, ro in enumerate(np.flip(snr_vals)):
-	train_data = np.random.choice(BPSK_symbols, (num_transmitted_symbols, train_size), p=[0.5, 0.5])
-	labels_train = np.sum(0.5 * (train_data + 1).T * 2 ** np.flip(np.arange(4)), axis=1).astype(np.long)
-	train_samples = create_received_signal(train_data, ro).T
-	training_set = []
+def hyperparameter_optimization(train_opt_data):
+	best_parameters, values, experiment, model = optimize(
+		parameters=[
+			{"name": "num_of_adc_p", "type": "range", "bounds": [0.0, np.log2(20)]},
+			{"name": "num_samples_L_tilde", "type": "range", "bounds": [0.0, np.log2(20)]},
+			{"name": "num_code_words", "type": "range", "bounds": [1.0, 20.0]}
+		],
+		evaluation_function=train_evaluate,
+		objective_name='Bit Error Rate', minimize=True,
+		parameter_constraints=['num_of_adc_p + num_samples_L_tilde + num_code_words <= 4.90689059561']
 
-	for i in range(len(train_samples)):
-		training_set.append([train_samples[i], labels_train[i]])
+		, total_trials=30)
 
-	train_opt_data.append((training_set, labels_train))
+	nets = train(create_received_signal, best_parameters, train_opt_data)
+	BER = evaluate_plot(best_parameters, nets)
 
-# best_parameters, values, experiment, model = optimize(
-# 	parameters=[
-# 		{"name": "num_of_adc_p", "type": "range", "bounds": [0.0, np.log2(20)]},
-# 		{"name": "num_samples_L_tilde", "type": "range", "bounds": [0.0, np.log2(20)]},
-# 		{"name": "num_code_words", "type": "range", "bounds": [1.0, 20.0]}
-# 	],
-# 	evaluation_function=train_evaluate,
-# 	objective_name='Bit Error Rate', minimize=True,
-# 	parameter_constraints=['num_of_adc_p + num_samples_L_tilde + num_code_words <= 4.321928094887363']
-#
-# )
+	for r, ro in enumerate(BER):
+		print('ro = ', r, ' BER: ', ro)
 
-best_parameters, values, experiment, model = optimize(
-	parameters=[
-		{"name": "num_of_adc_p", "type": "range", "bounds": [0.0, np.log2(20)]},
-		{"name": "num_samples_L_tilde", "type": "range", "bounds": [0.0, np.log2(20)]},
-		{"name": "num_code_words", "type": "range", "bounds": [1.0, 20.0]}
-	],
-	evaluation_function=train_evaluate,
-	objective_name='Bit Error Rate', minimize=True,
-	parameter_constraints=['num_of_adc_p + num_samples_L_tilde + num_code_words <= 4.90689059561']
+	print('Best parameters are: ', best_parameters)
+	return BER, best_parameters, values, experiment, model
 
-	, total_trials=30)
 
-best_p = best_parameters['num_of_adc_p']
-best_L_tilde = best_parameters['num_samples_L_tilde']
-best_code_words = best_parameters['num_code_words']
+def plot_hyperparameters_contours():
+	for i in range(1, 21):
+		plot_config_1 = plot_contour(model=model, param_x='num_of_adc_p', param_y='num_samples_L_tilde',
+		                             metric_name='Bit Error Rate',
+		                             slice_values={'num_code_words': i}, lower_is_better=True)
 
-nets = train(create_received_signal, best_parameters, train_opt_data)
-BER = evaluate_plot(best_parameters, nets)
+		with open('p_vs_L_tilde__code_words_' + str(i) + '.html', 'w') as outfile:
+			outfile.write(render_report_elements(
+				"example_report",
+				html_elements=[plot_config_to_html(plot_config_1)],
+				header=False,
+			))
 
-for r, ro in enumerate(BER):
-	print('ro = ', r, ' BER: ', ro)
+	for i in range(1, 21):
+		plot_config_2 = plot_contour(model=model, param_x='num_of_adc_p', param_y='num_code_words',
+		                             metric_name='Bit Error Rate', slice_values={'num_samples_L_tilde': np.log2(i)},
+		                             lower_is_better=True)
 
-print('Best parameters are: ', best_parameters)
+		with open('p_vs_code_words__L_tilde_' + str(i) + '.html', 'w') as outfile:
+			outfile.write(render_report_elements(
+				"example_report",
+				html_elements=[plot_config_to_html(plot_config_2)],
+				header=False,
+			))
 
-original_parameters = {}
-original_parameters['num_of_adc_p'] = np.log2(4)
-original_parameters['num_samples_L_tilde'] = np.log2(4)
-original_parameters['num_code_words'] = np.log2(8)
+	for i in range(1, 21):
+		plot_config_3 = plot_contour(model=model, param_x='num_samples_L_tilde', param_y='num_code_words',
+		                             metric_name='Bit Error Rate', slice_values={'num_of_adc_p': np.log2(i)},
+		                             lower_is_better=True)
 
-nets_original = train(create_received_signal, original_parameters, train_opt_data)
-BER_ORIGINAL = evaluate_plot(original_parameters, nets_original)
+		with open('L_tilde_vs_code_words__p_' + str(i) + '.html', 'w') as outfile:
+			outfile.write(render_report_elements(
+				"example_report",
+				html_elements=[plot_config_to_html(plot_config_3)],
+				header=False,
+			))
 
-for i in range(1, 21):
-	plot_config_1 = plot_contour(model=model, param_x='num_of_adc_p', param_y='num_samples_L_tilde',
-	                             metric_name='Bit Error Rate',
-	                             slice_values={'num_code_words': i}, lower_is_better=True)
 
-	with open('p_vs_L_tilde__code_words_' + str(i) + '.html', 'w') as outfile:
+def plot_BER_vs_iterations():
+	best_objectives = np.array([[trial.objective_mean for trial in experiment.trials.values()]])
+	best_objective_plot = optimization_trace_single_method(
+		y=np.minimum.accumulate(best_objectives, axis=1),
+		title="Overall BER vs. # of iterations",
+		ylabel="Bit Error Rate",
+	)
+
+	with open('BER_VS_ITERATIONS.html', 'w') as outfile:
 		outfile.write(render_report_elements(
 			"example_report",
-			html_elements=[plot_config_to_html(plot_config_1)],
+			html_elements=[plot_config_to_html(best_objective_plot)],
 			header=False,
 		))
 
-for i in range(1, 21):
-	plot_config_2 = plot_contour(model=model, param_x='num_of_adc_p', param_y='num_code_words',
-	                             metric_name='Bit Error Rate', slice_values={'num_samples_L_tilde': np.log2(i)},
-	                             lower_is_better=True)
 
-	with open('p_vs_code_words__L_tilde_' + str(i) + '.html', 'w') as outfile:
-		outfile.write(render_report_elements(
-			"example_report",
-			html_elements=[plot_config_to_html(plot_config_2)],
-			header=False,
-		))
+def plot_original_vs_optimized(BER, BER_ORIGINAL, best_parameters):
+	best_p = best_parameters['num_of_adc_p']
+	best_L_tilde = best_parameters['num_samples_L_tilde']
+	best_code_words = best_parameters['num_code_words']
+	plt.plot(np.arange(13), BER, marker='o', color='blue', label='Perfect CSI optimized')
+	plt.plot(np.arange(13), BER_ORIGINAL, marker='o', color='orange', label='Perfect CSI not optimized')
+	plt.title('p = ' + str(int(round(2.0 ** best_p))) + ' L_tilde = ' + str(
+		int(round(2.0 ** best_L_tilde))) + ' Code Words = ' + str(
+		int(round(2.0 ** best_code_words))) + ' Bits used: ' + str(
+		int(round(2.0 ** best_p)) * int(round(2.0 ** best_L_tilde)) * int(round(best_code_words))))
+	plt.ylabel('BER')
+	plt.xlabel('SNR[db]')
+	plt.yscale('log')
+	plt.ylim((10 ** (-6), 10 ** (-1)))
+	plt.legend()
+	plt.show()
 
-for i in range(1, 21):
-	plot_config_3 = plot_contour(model=model, param_x='num_samples_L_tilde', param_y='num_code_words',
-	                             metric_name='Bit Error Rate', slice_values={'num_of_adc_p': np.log2(i)},
-	                             lower_is_better=True)
 
-	with open('L_tilde_vs_code_words__p_' + str(i) + '.html', 'w') as outfile:
-		outfile.write(render_report_elements(
-			"example_report",
-			html_elements=[plot_config_to_html(plot_config_3)],
-			header=False,
-		))
+if __name__ == '__main__':
 
-best_objectives = np.array([[trial.objective_mean for trial in experiment.trials.values()]])
-best_objective_plot = optimization_trace_single_method(
-	y=np.minimum.accumulate(best_objectives, axis=1),
-	title="Overall BER vs. # of iterations",
-	ylabel="Bit Error Rate",
-)
+	#################
+	# Data Creation #
+	#################
 
-with open('BER_VS_ITERATIONS.html', 'w') as outfile:
-	outfile.write(render_report_elements(
-		"example_report",
-		html_elements=[plot_config_to_html(best_objective_plot)],
-		header=False,
-	))
+	train_opt_data = []
+	for r, ro in enumerate(np.flip(snr_vals)):
+		train_data = np.random.choice(BPSK_symbols, (num_transmitted_symbols, train_size), p=[0.5, 0.5])
+		labels_train = np.sum(0.5 * (train_data + 1).T * 2 ** np.flip(np.arange(4)), axis=1).astype(np.long)
+		train_samples = create_received_signal(train_data, ro).T
+		training_set = []
 
-plt.plot(np.arange(13), BER, marker='o', color='blue', label='Perfect CSI optimized')
-plt.plot(np.arange(13), BER_ORIGINAL, marker='o', color='orange', label='Perfect CSI not optimized')
-plt.title('p = ' + str(int(round(2.0 ** best_p))) + ' L_tilde = ' + str(
-	int(round(2.0 ** best_L_tilde))) + ' Code Words = ' + str(
-	int(round(2.0 ** best_code_words))) + ' Bits used: ' + str(
-	int(round(2.0 ** best_p)) * int(round(2.0 ** best_L_tilde)) * int(round(best_code_words))))
-plt.ylabel('BER')
-plt.xlabel('SNR[db]')
-plt.yscale('log')
-plt.ylim((10 ** (-6), 10 ** (-1)))
-plt.legend()
-plt.show()
+		for i in range(len(train_samples)):
+			training_set.append([train_samples[i], labels_train[i]])
+
+		train_opt_data.append((training_set, labels_train))
+
+	####################################################
+	# Train the model with hyperparameter optimization #
+	####################################################
+
+	BER, best_parameters, values, experiment, model = hyperparameter_optimization(train_opt_data)
+	plot_hyperparameters_contours()
+	plot_BER_vs_iterations()
+
+	####################################################
+	#   Train the model with original hyperparmeters   #
+	####################################################
+
+	original_parameters = {}
+	original_parameters['num_of_adc_p'] = np.log2(4)
+	original_parameters['num_samples_L_tilde'] = np.log2(4)
+	original_parameters['num_code_words'] = np.log2(8)
+
+	nets_original = train(create_received_signal, original_parameters, train_opt_data)
+	BER_ORIGINAL = evaluate_plot(original_parameters, nets_original)
+
+	plot_original_vs_optimized(BER, BER_ORIGINAL, best_parameters)
