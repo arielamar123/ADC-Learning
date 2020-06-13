@@ -3,9 +3,17 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
+
 class QuantizationLayer(nn.Module):
 
 	def __init__(self, num_code_words, max_labels, max_samples):
+		'''
+		initialize quantization layer
+
+		:param num_code_words: define the qunatization resolution , log(num_code_words) is the number of bits used in quantization
+		:param max_labels: maximum value of the target values
+		:param max_samples: maximum value of the samples
+		'''
 		super(QuantizationLayer, self).__init__()
 		self.a = torch.nn.Parameter(
 			data=torch.from_numpy(
@@ -50,6 +58,13 @@ from tensorflow.keras import layers
 class KerasQuantizationLayer(layers.Layer):
 
 	def __init__(self, num_code_words, max_labels, max_samples):
+		'''
+		initialize quantization layer
+
+		:param num_code_words: define the qunatization resolution , log(num_code_words) is the number of bits used in quantization
+		:param max_labels: maximum value of the target values
+		:param max_samples: maximum value of the samples
+		'''
 		super(KerasQuantizationLayer, self).__init__()
 		self.init_a = np.ones(num_code_words - 1) * max_labels / num_code_words
 		self.a = tf.Variable(initial_value=self.init_a,
@@ -73,7 +88,6 @@ class KerasQuantizationLayer(layers.Layer):
 			outputs.append(quant_step)
 		z = tf.stack(outputs)
 		return tf.math.reduce_sum(z, axis=0)
-
 
 
 class HardQuantizationLayer(nn.Module):
@@ -104,9 +118,7 @@ class HardQuantizationLayer(nn.Module):
 		return z
 
 
-
 if __name__ == '__main__':
 	x = tf.ones((4, 4), dtype=tf.float64)
 	quant_layer = KerasQuantizationLayer(8, 15, 15)
 	y = quant_layer(x)
-
