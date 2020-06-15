@@ -120,5 +120,11 @@ class HardQuantizationLayer(nn.Module):
 
 if __name__ == '__main__':
 	x = tf.ones((4, 4), dtype=tf.float64)
-	quant_layer = KerasQuantizationLayer(8, 15, 15)
-	y = quant_layer(x)
+	print('**********************')
+	tf.keras.backend.print_tensor(
+		x, message='hello'
+	)
+	print('**********************')
+
+	# quant_layer = KerasQuantizationLayer(8, 15, 15)
+	# y = quant_layer(x)
