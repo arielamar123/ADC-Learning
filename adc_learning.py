@@ -34,7 +34,7 @@ epochs = 30
 batch_size = 200
 time_vec = np.arange(1, dense_sampling_L + 1) / dense_sampling_L
 channel_matrix_cos = 1 + 0.5 * np.cos(time_vec)
-gaussian_sampling_std = 0.4 * torch.ones(num_samples_L_tilde).double()
+gaussian_sampling_std = 0.4 #* torch.ones(num_samples_L_tilde).double()
 noise_vector = 1 + 0.3 * np.cos(1.5 * (np.arange(1, dense_sampling_L + 1)) + 0.2)
 
 ###########################
@@ -147,7 +147,7 @@ class SamplingLayer(nn.Module):
 			for k in range(num_samples_L_tilde):
 				out[:, v * num_samples_L_tilde + k] = torch.sum(
 					x[:, j:j + dense_sampling_L] * torch.exp(
-						-(t - self.weight[k]) ** 2 / gaussian_sampling_std[k] ** 2), dim=1)
+						-(t - self.weight[k]) ** 2 / gaussian_sampling_std ** 2), dim=1)
 		return out
 
 
